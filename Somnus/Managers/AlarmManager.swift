@@ -15,7 +15,6 @@ class AlarmManager: ObservableObject {
     init() {
         setupVolumeControl()
         setupAudioSession()
-        notificationDelegate = NotificationDelegate(alarmManager: self)
         requestNotificationPermission()
         loadAlarms()
         setupNotificationHandling()
@@ -81,8 +80,6 @@ class AlarmManager: ObservableObject {
             selector: #selector(handleAppDidBecomeActive),
             name: UIApplication.didBecomeActiveNotification,
             object: nil)
-        
-        UNUserNotificationCenter.current().delegate = notificationDelegate
     }
     
     @objc func handleAppDidBecomeActive() {

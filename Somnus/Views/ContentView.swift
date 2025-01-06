@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var alarmManager = AlarmManager()
+    @EnvironmentObject var alarmManager: AlarmManager
     @State private var showingAddAlarm = false
     @State private var selectedTime = Date()
     
@@ -42,4 +42,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+        .environmentObject(AlarmManager())
 } 
