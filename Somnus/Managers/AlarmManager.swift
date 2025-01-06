@@ -39,10 +39,10 @@ class AlarmManager: ObservableObject {
     private func setupAudioSession() {
         do {
             let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.playback, mode: .default)
-            try audioSession.setActive(true)
-            
-            try audioSession.setCategory(.playback, options: [.mixWithOthers])
+            try audioSession.setCategory(.playback, 
+                                   mode: .default,
+                                   options: [.defaultToSpeaker])
+            try audioSession.setActive(true)            
             try audioSession.overrideOutputAudioPort(.speaker)
             
             if let soundURL = Bundle.main.url(forResource: "alarm_sound", withExtension: "wav") {
@@ -156,7 +156,7 @@ class AlarmManager: ObservableObject {
             let notificationTime = nextAlarmTime.addingTimeInterval(timeInterval)
             
             Timer.scheduledTimer(withTimeInterval: timeInterval, repeats: false) { [weak self] _ in
-                self?.checkAndMaximizeVolume()
+                self?.maximizeVolume()
                 self?.playAlarmSound()
             }
             
@@ -169,17 +169,6 @@ class AlarmManager: ObservableObject {
                                               trigger: trigger)
             
             UNUserNotificationCenter.current().add(request)
-        }
-    }
-    
-    private func checkAndMaximizeVolume() {
-        DispatchQueue.main.async {
-            if let slider = self.volumeSlider {
-                if slider.value < 1.0 {
-                    slider.setValue(1.0, animated: false)
-                    slider.sendActions(for: .touchUpInside)
-                }
-            }
         }
     }
     

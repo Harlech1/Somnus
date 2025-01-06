@@ -33,9 +33,6 @@ struct ContentView: View {
                             selectedTime: $selectedTime,
                             alarmManager: alarmManager)
             }
-            .onAppear {
-                UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
-            }
         }
     }
 }
