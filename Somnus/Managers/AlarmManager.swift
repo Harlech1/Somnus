@@ -9,8 +9,8 @@ class AlarmManager: ObservableObject {
     private let notificationInterval: TimeInterval = 2
     private var volumeView: MPVolumeView?
     private var volumeSlider: UISlider?
-    private var notificationDelegate: NotificationDelegate?
     private var audioPlayer: AVAudioPlayer?
+    private var notificationDelegate: NotificationDelegate?
     
     init() {
         setupVolumeControl()
@@ -18,6 +18,10 @@ class AlarmManager: ObservableObject {
         requestNotificationPermission()
         loadAlarms()
         setupNotificationHandling()
+    }
+    
+    func setNotificationDelegate(_ delegate: NotificationDelegate) {
+        notificationDelegate = delegate
     }
     
     private func setupVolumeControl() {
@@ -35,16 +39,13 @@ class AlarmManager: ObservableObject {
             }
         }
     }
-    
+
     private func setupAudioSession() {
         do {
             let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.playback, 
-                                   mode: .default,
-                                   options: [.defaultToSpeaker])
-            try audioSession.setActive(true)            
-            try audioSession.overrideOutputAudioPort(.speaker)
-            
+            try audioSession.setCategory(.playback, mode: .default, options: [])
+            try audioSession.setActive(true)
+
             if let soundURL = Bundle.main.url(forResource: "alarm_sound", withExtension: "wav") {
                 audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
                 audioPlayer?.numberOfLoops = -1
@@ -147,6 +148,12 @@ class AlarmManager: ObservableObject {
             return
         }
         
+        let timeUntilAlarm = nextAlarmTime.timeIntervalSince(now)
+        
+        Timer.scheduledTimer(withTimeInterval: timeUntilAlarm, repeats: false) { [weak self] _ in
+            self?.startAlarmSequence()
+        }
+        
         for i in 0..<maxNotifications {
             let content = UNMutableNotificationContent()
             content.title = "Wake Up!"
@@ -154,11 +161,6 @@ class AlarmManager: ObservableObject {
             
             let timeInterval = TimeInterval(i) * notificationInterval
             let notificationTime = nextAlarmTime.addingTimeInterval(timeInterval)
-            
-            Timer.scheduledTimer(withTimeInterval: timeInterval, repeats: false) { [weak self] _ in
-                self?.maximizeVolume()
-                self?.playAlarmSound()
-            }
             
             let triggerComponents = calendar.dateComponents([.hour, .minute, .second], from: notificationTime)
             let trigger = UNCalendarNotificationTrigger(dateMatching: triggerComponents, repeats: true)
@@ -169,6 +171,19 @@ class AlarmManager: ObservableObject {
                                               trigger: trigger)
             
             UNUserNotificationCenter.current().add(request)
+        }
+    }
+    
+    private func startAlarmSequence() {
+        maximizeVolume()
+        playAlarmSound()
+        
+        for i in 1..<maxNotifications {
+            let timeInterval = TimeInterval(i) * notificationInterval
+            Timer.scheduledTimer(withTimeInterval: timeInterval, repeats: false) { [weak self] _ in
+                self?.maximizeVolume()
+                self?.playAlarmSound()
+            }
         }
     }
     
