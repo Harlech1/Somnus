@@ -1,29 +1,26 @@
 import SwiftUI
 import UserNotifications
-import MediaPlayer
 import AVFoundation
+import MediaPlayer
 
 class AlarmManager: ObservableObject {
     @Published var alarms: [Alarm] = []
-    private let maxNotifications = 64
-    private let notificationInterval: TimeInterval = 2
+    private var audioPlayer: AVAudioPlayer?
+    private var silentPlayer: AVAudioPlayer?
     private var volumeView: MPVolumeView?
     private var volumeSlider: UISlider?
-    private var audioPlayer: AVAudioPlayer?
-    private var silentAudioPlayer: AVAudioPlayer?
     private var notificationDelegate: NotificationDelegate?
     
     init() {
         setupVolumeControl()
-        setupAudioSession()
-        setupSilentAudio()
+        setupAudio()
         requestNotificationPermission()
         loadAlarms()
-        setupNotificationHandling()
     }
     
     func setNotificationDelegate(_ delegate: NotificationDelegate) {
         notificationDelegate = delegate
+        UNUserNotificationCenter.current().delegate = delegate
     }
     
     private func setupVolumeControl() {
@@ -41,119 +38,49 @@ class AlarmManager: ObservableObject {
             }
         }
     }
-
-    private func setupAudioSession() {
-        do {
-            let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.playback, mode: .default, options: [.mixWithOthers, .duckOthers])
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-            
-            if let soundURL = Bundle.main.url(forResource: "alarm_sound", withExtension: "wav") {
-                audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
-                audioPlayer?.numberOfLoops = -1
-                audioPlayer?.prepareToPlay()
-            }
-        } catch {
-            print("Failed to configure audio session: \(error)")
-        }
-    }
     
-    private func setupSilentAudio() {
-        do {
-            if let silentURL = Bundle.main.url(forResource: "silence", withExtension: "mp3") {
-                silentAudioPlayer = try AVAudioPlayer(contentsOf: silentURL)
-                silentAudioPlayer?.numberOfLoops = -1  // Loop indefinitely
-                silentAudioPlayer?.volume = 0.0       // Make sure it's silent
-                silentAudioPlayer?.play()             // Start playing immediately
-            }
-        } catch {
-            print("Failed to setup silent audio: \(error)")
-        }
-    }
-    
-    func maximizeVolume() {
+    private func maximizeVolume() {
         DispatchQueue.main.async {
             self.volumeSlider?.setValue(0.2, animated: false)
             self.volumeSlider?.sendActions(for: .touchUpInside)
         }
     }
     
-    func playAlarmSound() {
+    private func setupAudio() {
         do {
-            // Pause silent audio while alarm is playing
-            silentAudioPlayer?.pause()
+            // Setup audio session
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback)
+            try session.setActive(true)
             
-            try AVAudioSession.sharedInstance().setActive(true)
-            audioPlayer?.play()
+            // Setup alarm sound
+            if let soundURL = Bundle.main.url(forResource: "alarm_sound", withExtension: "wav") {
+                audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
+                audioPlayer?.numberOfLoops = -1
+                audioPlayer?.prepareToPlay()
+            }
+            
+            // Setup silent audio for background capability
+            if let silentURL = Bundle.main.url(forResource: "silence", withExtension: "mp3") {
+                silentPlayer = try AVAudioPlayer(contentsOf: silentURL)
+                silentPlayer?.numberOfLoops = -1
+                silentPlayer?.volume = 0.0
+                silentPlayer?.play()  // Start playing silent sound immediately
+            }
         } catch {
-            print("Failed to play alarm sound: \(error)")
+            print("Failed to setup audio: \(error)")
         }
+    }
+    
+    func playAlarmSound() {
+        silentPlayer?.pause()  // Pause silent sound
+        maximizeVolume()      // Ensure volume is maximum
+        audioPlayer?.play()
     }
     
     func stopAlarmSound() {
         audioPlayer?.stop()
-        // Resume silent audio
-        silentAudioPlayer?.play()
-    }
-    
-    func setupNotificationHandling() {
-        NotificationCenter.default.addObserver(self,
-            selector: #selector(handleAppDidBecomeActive),
-            name: UIApplication.didBecomeActiveNotification,
-            object: nil)
-    }
-    
-    @objc func handleAppDidBecomeActive() {
-        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
-        stopAlarmSound()
-    }
-    
-    func requestNotificationPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
-            if granted {
-                print("Notification permission granted")
-            } else {
-                print("Notification permission denied")
-            }
-        }
-    }
-    
-    func loadAlarms() {
-        if let data = UserDefaults.standard.data(forKey: "savedAlarms"),
-           let decodedAlarms = try? JSONDecoder().decode([Alarm].self, from: data) {
-            alarms = decodedAlarms
-        }
-    }
-    
-    func saveAlarms() {
-        if let encoded = try? JSONEncoder().encode(alarms) {
-            UserDefaults.standard.set(encoded, forKey: "savedAlarms")
-        }
-    }
-    
-    func addAlarm(time: Date) {
-        let newAlarm = Alarm(id: UUID(), time: time, isEnabled: true)
-        alarms.append(newAlarm)
-        scheduleNotification(for: newAlarm)
-        saveAlarms()
-    }
-    
-    func toggleAlarm(_ alarm: Alarm) {
-        if let index = alarms.firstIndex(where: { $0.id == alarm.id }) {
-            alarms[index].isEnabled.toggle()
-            if alarms[index].isEnabled {
-                scheduleNotification(for: alarms[index])
-            } else {
-                cancelNotification(for: alarm)
-            }
-            saveAlarms()
-        }
-    }
-    
-    func deleteAlarm(_ alarm: Alarm) {
-        alarms.removeAll { $0.id == alarm.id }
-        cancelNotification(for: alarm)
-        saveAlarms()
+        silentPlayer?.play()  // Resume silent sound to keep background capability
     }
     
     func scheduleNotification(for alarm: Alarm) {
@@ -162,28 +89,30 @@ class AlarmManager: ObservableObject {
         
         var components = calendar.dateComponents([.hour, .minute], from: alarm.time)
         components.second = 0
-        guard let nextAlarmTime = calendar.nextDate(after: now,
-                                                  matching: components,
-                                                  matchingPolicy: .nextTime) else {
+        
+        guard let alarmTime = calendar.nextDate(after: now,
+                                              matching: components,
+                                              matchingPolicy: .nextTime) else {
             return
         }
         
-        let timeUntilAlarm = nextAlarmTime.timeIntervalSince(now)
+        // Calculate delay until alarm time
+        let timeUntilAlarm = alarmTime.timeIntervalSince(now)
         
+        // Schedule alarm sound
         Timer.scheduledTimer(withTimeInterval: timeUntilAlarm, repeats: false) { [weak self] _ in
-            self?.startAlarmSequence()
+            self?.playAlarmSound()
         }
         
-        for i in 0..<maxNotifications {
+        // Schedule notifications starting from 0 to be consistent
+        for i in 0..<64 {
             let content = UNMutableNotificationContent()
             content.title = "Wake Up!"
-            content.body = "Time to wake up! (\(i + 1) of \(maxNotifications))"
+            content.body = "Time to wake up! (\(i) of 63)"
             
-            let timeInterval = TimeInterval(i) * notificationInterval
-            let notificationTime = nextAlarmTime.addingTimeInterval(timeInterval)
-            
+            let notificationTime = alarmTime.addingTimeInterval(TimeInterval(i * 2))
             let triggerComponents = calendar.dateComponents([.hour, .minute, .second], from: notificationTime)
-            let trigger = UNCalendarNotificationTrigger(dateMatching: triggerComponents, repeats: true)
+            let trigger = UNCalendarNotificationTrigger(dateMatching: triggerComponents, repeats: false)
             
             let identifier = "\(alarm.id.uuidString)-\(i)"
             let request = UNNotificationRequest(identifier: identifier,
@@ -194,28 +123,58 @@ class AlarmManager: ObservableObject {
         }
     }
     
-    private func startAlarmSequence() {
-        maximizeVolume()
-        playAlarmSound()
-        
-        for i in 1..<maxNotifications {
-            let timeInterval = TimeInterval(i) * notificationInterval
-            Timer.scheduledTimer(withTimeInterval: timeInterval, repeats: false) { [weak self] _ in
-                self?.maximizeVolume()
-                self?.playAlarmSound()
+    func cancelNotifications(for alarm: Alarm) {
+        let identifiers = (0..<64).map { "\(alarm.id.uuidString)-\($0)" }
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: identifiers)
+    }
+    
+    private func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
+            if granted {
+                print("Notification permission granted")
+            } else {
+                print("Notification permission denied")
             }
         }
     }
     
-    func cancelNotification(for alarm: Alarm) {
-        let identifiers = (0..<maxNotifications).map { "\(alarm.id.uuidString)-\($0)" }
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: identifiers)
-        stopAlarmSound()
+    // MARK: - Alarm Management
+    
+    func loadAlarms() {
+        if let data = UserDefaults.standard.data(forKey: "savedAlarms"),
+           let decoded = try? JSONDecoder().decode([Alarm].self, from: data) {
+            alarms = decoded
+        }
     }
     
-    deinit {
-        // Clean up audio players
-        silentAudioPlayer?.stop()
-        audioPlayer?.stop()
+    func saveAlarms() {
+        if let encoded = try? JSONEncoder().encode(alarms) {
+            UserDefaults.standard.set(encoded, forKey: "savedAlarms")
+        }
+    }
+    
+    func addAlarm(time: Date) {
+        let alarm = Alarm(id: UUID(), time: time, isEnabled: true)
+        alarms.append(alarm)
+        scheduleNotification(for: alarm)
+        saveAlarms()
+    }
+    
+    func toggleAlarm(_ alarm: Alarm) {
+        if let index = alarms.firstIndex(where: { $0.id == alarm.id }) {
+            alarms[index].isEnabled.toggle()
+            if alarms[index].isEnabled {
+                scheduleNotification(for: alarms[index])
+            } else {
+                cancelNotifications(for: alarm)
+            }
+            saveAlarms()
+        }
+    }
+    
+    func deleteAlarm(_ alarm: Alarm) {
+        alarms.removeAll { $0.id == alarm.id }
+        cancelNotifications(for: alarm)
+        saveAlarms()
     }
 } 

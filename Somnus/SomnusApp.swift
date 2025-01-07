@@ -11,16 +11,19 @@ import UserNotifications
 @main
 struct SomnusApp: App {
     @StateObject private var alarmManager = AlarmManager()
+    private let notificationDelegate: NotificationDelegate
+    
+    init() {
+        let manager = AlarmManager()
+        _alarmManager = StateObject(wrappedValue: manager)
+        notificationDelegate = NotificationDelegate(alarmManager: manager)
+        manager.setNotificationDelegate(notificationDelegate)
+    }
     
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(alarmManager)
-                .onAppear {
-                    let delegate = NotificationDelegate(alarmManager: alarmManager)
-                    UNUserNotificationCenter.current().delegate = delegate
-                    alarmManager.setNotificationDelegate(delegate)
-                }
         }
     }
 }
