@@ -3,7 +3,6 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var alarmManager: AlarmManager
     @State private var showingAddAlarm = false
-    @State private var selectedTime = Date()
     
     var body: some View {
         NavigationView {
@@ -30,7 +29,6 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showingAddAlarm) {
                 AddAlarmView(isPresented: $showingAddAlarm,
-                            selectedTime: $selectedTime,
                             alarmManager: alarmManager)
             }
         }
