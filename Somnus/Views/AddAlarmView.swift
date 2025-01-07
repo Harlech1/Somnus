@@ -2,8 +2,18 @@ import SwiftUI
 
 struct AddAlarmView: View {
     @Binding var isPresented: Bool
-    @Binding var selectedTime: Date
     @ObservedObject var alarmManager: AlarmManager
+    @State private var selectedTime: Date
+    
+    init(isPresented: Binding<Bool>, alarmManager: AlarmManager) {
+        self._isPresented = isPresented
+        self.alarmManager = alarmManager
+        
+        let calendar = Calendar.current
+        let now = Date()
+        let nextMinute = calendar.date(byAdding: .minute, value: 1, to: now) ?? now
+        self._selectedTime = State(initialValue: nextMinute)
+    }
     
     var body: some View {
         NavigationView {
