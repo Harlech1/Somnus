@@ -31,7 +31,7 @@ class AlarmManager: ObservableObject {
             
             for subview in view.subviews {
                 if let slider = subview as? UISlider {
-                    slider.value = 0.2
+                    slider.value = 0.8
                     volumeSlider = slider
                     break
                 }
@@ -41,7 +41,7 @@ class AlarmManager: ObservableObject {
     
     private func maximizeVolume() {
         DispatchQueue.main.async {
-            self.volumeSlider?.setValue(0.2, animated: false)
+            self.volumeSlider?.setValue(0.8, animated: false)
             self.volumeSlider?.sendActions(for: .touchUpInside)
         }
     }
