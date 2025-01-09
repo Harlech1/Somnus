@@ -16,6 +16,32 @@ class AlarmManager: ObservableObject {
         setupAudio()
         requestNotificationPermission()
         loadAlarms()
+        setupScenePhaseObserver()
+    }
+    
+    private func setupScenePhaseObserver() {
+        NotificationCenter.default.addObserver(self,
+                                             selector: #selector(appWillTerminate),
+                                             name: UIApplication.willTerminateNotification,
+                                             object: nil)
+    }
+
+    @objc private func appWillTerminate() {
+        let activeAlarms = alarms.filter { $0.isEnabled }
+        if !activeAlarms.isEmpty {
+            let content = UNMutableNotificationContent()
+            content.title = "⚠️ Warning: Alarms Will Not Work"
+            content.body = "You have closed the app completely. Your alarms will not sound until you open the app again."
+            content.sound = .default
+            
+            // Show notification after 5 seconds
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
+            let request = UNNotificationRequest(identifier: "app-terminated-warning",
+                                              content: content,
+                                              trigger: trigger)
+            
+            UNUserNotificationCenter.current().add(request)
+        }
     }
     
     func setNotificationDelegate(_ delegate: NotificationDelegate) {
