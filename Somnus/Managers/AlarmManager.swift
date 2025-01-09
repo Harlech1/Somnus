@@ -57,7 +57,7 @@ class AlarmManager: ObservableObject {
             
             for subview in view.subviews {
                 if let slider = subview as? UISlider {
-                    slider.value = 0.8
+                    slider.value = 0.3
                     volumeSlider = slider
                     break
                 }
@@ -67,31 +67,28 @@ class AlarmManager: ObservableObject {
     
     private func maximizeVolume() {
         DispatchQueue.main.async {
-            self.volumeSlider?.setValue(0.8, animated: false)
+            self.volumeSlider?.setValue(0.3, animated: false)
             self.volumeSlider?.sendActions(for: .touchUpInside)
         }
     }
     
     private func setupAudio() {
         do {
-            // Setup audio session
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback)
             try session.setActive(true)
             
-            // Setup alarm sound
             if let soundURL = Bundle.main.url(forResource: "alarm_sound", withExtension: "wav") {
                 audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
                 audioPlayer?.numberOfLoops = -1
                 audioPlayer?.prepareToPlay()
             }
             
-            // Setup silent audio for background capability
             if let silentURL = Bundle.main.url(forResource: "silence", withExtension: "mp3") {
                 silentPlayer = try AVAudioPlayer(contentsOf: silentURL)
                 silentPlayer?.numberOfLoops = -1
                 silentPlayer?.volume = 0.0
-                silentPlayer?.play()  // Start playing silent sound immediately
+                silentPlayer?.play()
             }
         } catch {
             print("Failed to setup audio: \(error)")
@@ -99,14 +96,14 @@ class AlarmManager: ObservableObject {
     }
     
     func playAlarmSound() {
-        silentPlayer?.pause()  // Pause silent sound
-        maximizeVolume()      // Ensure volume is maximum
+        silentPlayer?.pause()
+        maximizeVolume()
         audioPlayer?.play()
     }
     
     func stopAlarmSound() {
         audioPlayer?.stop()
-        silentPlayer?.play()  // Resume silent sound to keep background capability
+        silentPlayer?.play()
     }
     
     func scheduleNotification(for alarm: Alarm) {
@@ -122,22 +119,34 @@ class AlarmManager: ObservableObject {
             return
         }
         
-        // Calculate delay until alarm time
-        let timeUntilAlarm = alarmTime.timeIntervalSince(now)
-        
-        // Schedule alarm sound
-        Timer.scheduledTimer(withTimeInterval: timeUntilAlarm, repeats: false) { [weak self] _ in
+        // Schedule the initial alarm sound
+        Timer.scheduledTimer(withTimeInterval: alarmTime.timeIntervalSince(now), repeats: false) { [weak self] _ in
             self?.playAlarmSound()
+            // Start a timer to check and reschedule notifications
+            Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] timer in
+                guard let self = self else { return }
+                // Only continue if alarm is still playing
+                if self.audioPlayer?.isPlaying == true {
+                    self.scheduleNextBatchOfNotifications(for: alarm, from: Date())
+                } else {
+                    timer.invalidate()
+                }
+            }
         }
         
-        // Schedule notifications starting from 0 to be consistent
+        // Schedule first batch of notifications
+        scheduleNextBatchOfNotifications(for: alarm, from: alarmTime)
+    }
+    
+    private func scheduleNextBatchOfNotifications(for alarm: Alarm, from startTime: Date) {
+        // Schedule 64 notifications (maximum allowed)
         for i in 0..<64 {
             let content = UNMutableNotificationContent()
             content.title = "Wake Up!"
-            content.body = "Time to wake up! (\(i) of 63)"
+            content.body = "Time to wake up! Tap to stop."
             
-            let notificationTime = alarmTime.addingTimeInterval(TimeInterval(i * 2))
-            let triggerComponents = calendar.dateComponents([.hour, .minute, .second], from: notificationTime)
+            let notificationTime = startTime.addingTimeInterval(TimeInterval(i * 2))
+            let triggerComponents = Calendar.current.dateComponents([.hour, .minute, .second], from: notificationTime)
             let trigger = UNCalendarNotificationTrigger(dateMatching: triggerComponents, repeats: false)
             
             let identifier = "\(alarm.id.uuidString)-\(i)"
@@ -151,6 +160,7 @@ class AlarmManager: ObservableObject {
     
     func cancelNotifications(for alarm: Alarm) {
         let identifiers = (0..<64).map { "\(alarm.id.uuidString)-\($0)" }
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: identifiers)
     }
     
