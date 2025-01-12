@@ -1,8 +1,10 @@
 import SwiftUI
 
 struct ContentView: View {
-    @EnvironmentObject var alarmManager: AlarmManager
+    @StateObject private var alarmManager = AlarmManager()
+    @StateObject private var notificationDelegate = NotificationDelegate()
     @State private var showingAddAlarm = false
+    @Environment(\.scenePhase) private var scenePhase
     
     var body: some View {
         NavigationView {
@@ -20,16 +22,35 @@ struct ContentView: View {
             .navigationTitle("Alarms")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        showingAddAlarm = true
-                    }) {
+                    Button(action: { showingAddAlarm = true }) {
                         Image(systemName: "plus")
                     }
                 }
             }
-            .sheet(isPresented: $showingAddAlarm) {
-                AddAlarmView(isPresented: $showingAddAlarm,
-                            alarmManager: alarmManager)
+        }
+        .sheet(isPresented: $showingAddAlarm) {
+            AddAlarmView(isPresented: $showingAddAlarm, alarmManager: alarmManager)
+        }
+        .fullScreenCover(isPresented: $alarmManager.showMathQuiz) {
+            MathQuizView(alarmManager: alarmManager)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                // Check alarm state when app becomes active
+                if alarmManager.audioPlayer?.isPlaying == true {
+                    alarmManager.pauseAlarm()
+                    alarmManager.showMathQuiz = true
+                }
+            }
+        }
+        .onAppear {
+            notificationDelegate.alarmManager = alarmManager
+            alarmManager.setNotificationDelegate(notificationDelegate)
+            
+            // Initial check for playing alarm
+            if alarmManager.audioPlayer?.isPlaying == true {
+                alarmManager.pauseAlarm()
+                alarmManager.showMathQuiz = true
             }
         }
     }
@@ -37,5 +58,4 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .environmentObject(AlarmManager())
 } 

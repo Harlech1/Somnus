@@ -5,7 +5,9 @@ import MediaPlayer
 
 class AlarmManager: ObservableObject {
     @Published var alarms: [Alarm] = []
-    private var audioPlayer: AVAudioPlayer?
+    @Published var showMathQuiz = false
+    @Published var isAlarmPlaying = false
+    var audioPlayer: AVAudioPlayer?
     private var silentPlayer: AVAudioPlayer?
     private var volumeView: MPVolumeView?
     private var volumeSlider: UISlider?
@@ -83,7 +85,7 @@ class AlarmManager: ObservableObject {
                 audioPlayer?.numberOfLoops = -1
                 audioPlayer?.prepareToPlay()
             }
-            
+
             if let silentURL = Bundle.main.url(forResource: "silence", withExtension: "mp3") {
                 silentPlayer = try AVAudioPlayer(contentsOf: silentURL)
                 silentPlayer?.numberOfLoops = -1
@@ -99,11 +101,60 @@ class AlarmManager: ObservableObject {
         silentPlayer?.pause()
         maximizeVolume()
         audioPlayer?.play()
+        isAlarmPlaying = true
+        showMathQuiz = true
+    }
+    
+    func pauseAlarm() {
+        audioPlayer?.pause()
+        silentPlayer?.play()
+        // Temporarily remove notifications while solving
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+    }
+    
+    func resumeAlarm() {
+        silentPlayer?.pause()
+        audioPlayer?.play()
+        isAlarmPlaying = true
+        showMathQuiz = true
+    }
+    
+    func startImmediateNotifications(for alarm: Alarm) {
+        // Send first notification immediately
+        let content = UNMutableNotificationContent()
+        content.title = "Wake Up!"
+        content.body = "Time to wake up! Tap to stop."
+        
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
+        let request = UNNotificationRequest(identifier: "\(alarm.id.uuidString)-\(Date().timeIntervalSince1970)",
+                                          content: content,
+                                          trigger: trigger)
+        UNUserNotificationCenter.current().add(request)
+        
+        // Then start the timer for subsequent notifications with 5-second interval
+        Timer.scheduledTimer(withTimeInterval: 4.9, repeats: true) { [weak self] timer in
+            guard let self = self else { return }
+            if self.audioPlayer?.isPlaying == true {
+                let content = UNMutableNotificationContent()
+                content.title = "Wake Up!"
+                content.body = "Time to wake up! Tap to stop."
+                
+                let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
+                let request = UNNotificationRequest(identifier: "\(alarm.id.uuidString)-\(Date().timeIntervalSince1970)",
+                                                  content: content,
+                                                  trigger: trigger)
+                
+                UNUserNotificationCenter.current().add(request)
+            } else {
+                timer.invalidate()
+            }
+        }
     }
     
     func stopAlarmSound() {
         audioPlayer?.stop()
         silentPlayer?.play()
+        isAlarmPlaying = false
         
         // Clean up all notifications when alarm is stopped
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
@@ -126,7 +177,7 @@ class AlarmManager: ObservableObject {
         Timer.scheduledTimer(withTimeInterval: alarmTime.timeIntervalSince(now), repeats: false) { [weak self] _ in
             self?.playAlarmSound()
             
-            Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] timer in
+            Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { [weak self] timer in
                 guard let self = self else { return }
                 if self.audioPlayer?.isPlaying == true {
                     let content = UNMutableNotificationContent()
@@ -135,7 +186,7 @@ class AlarmManager: ObservableObject {
                     
                     // Create an immediate trigger
                     let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
-                    
+
                     let request = UNNotificationRequest(identifier: "\(alarm.id.uuidString)-\(Date().timeIntervalSince1970)",
                                                       content: content,
                                                       trigger: trigger)
