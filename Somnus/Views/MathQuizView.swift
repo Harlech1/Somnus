@@ -5,95 +5,130 @@ struct MathQuizView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var alarmManager: AlarmManager
     
-    @State private var questions: [(num1: Int, num2: Int, operation: String, answer: Int)] = []
-    @State private var userAnswers: [String] = ["", "", ""]
+    @State private var questions: [(num1: Int, num2: Int, answer: Int, options: [Int])] = []
     @State private var currentQuestion = 0
+    @State private var selectedAnswer: Int?
+    @State private var isAnswerCorrect = false
     
     init(alarmManager: AlarmManager) {
         self.alarmManager = alarmManager
         
-        // Generate 3 simple math questions
-        let operations = ["+", "-"]
-        var generatedQuestions: [(Int, Int, String, Int)] = []
-        
+        var generatedQuestions: [(Int, Int, Int, [Int])] = []
         for _ in 0..<3 {
             let num1 = Int.random(in: 1...20)
             let num2 = Int.random(in: 1...10)
-            let operation = operations.randomElement()!
+            let answer = num1 + num2
             
-            let answer: Int
-            if operation == "+" {
-                answer = num1 + num2
-            } else {
-                answer = num1 - num2
+            var options = [answer]
+            while options.count < 4 {
+                let wrongAnswer = answer + Int.random(in: -5...5)
+                if wrongAnswer != answer && !options.contains(wrongAnswer) && wrongAnswer > 0 {
+                    options.append(wrongAnswer)
+                }
             }
+            options.shuffle()
             
-            generatedQuestions.append((num1, num2, operation, answer))
+            generatedQuestions.append((num1, num2, answer, options))
         }
         _questions = State(initialValue: generatedQuestions)
     }
     
     var body: some View {
-        VStack(spacing: 30) {
-            Text("Solve to Stop Alarm")
-                .font(.title)
-                .fontWeight(.bold)
-            
-            ForEach(0..<3) { index in
-                HStack {
-                    Text("\(questions[index].num1) \(questions[index].operation) \(questions[index].num2) = ")
-                        .font(.title2)
-                    
-                    TextField("?", text: $userAnswers[index])
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(width: 100)
-                        .keyboardType(.numberPad)
+        VStack(spacing: 20) {
+            HStack(spacing: 10) {
+                ForEach(0..<3) { index in
+                    Circle()
+                        .fill(index == currentQuestion ? Color.blue : Color.gray.opacity(0.3))
+                        .frame(width: 8, height: 8)
                 }
-                .opacity(currentQuestion == index ? 1 : 0.3)
             }
             
-            Button(action: checkAnswer) {
-                Text("Submit")
-                    .font(.title3)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .frame(width: 200, height: 50)
-                    .background(Color.blue)
-                    .cornerRadius(10)
+            Text("Question \(currentQuestion + 1) of 3")
+                .font(.headline)
+                .foregroundColor(.gray)
+            
+            Spacer()
+            
+            Text("\(questions[currentQuestion].num1) + \(questions[currentQuestion].num2)")
+                .font(.system(size: 50, weight: .bold))
+                .padding(.bottom, 40)
+            
+            VStack(spacing: 16) {
+                ForEach(questions[currentQuestion].options, id: \.self) { option in
+                    Button(action: { checkAnswer(option) }) {
+                        Text("\(option)")
+                            .font(.title)
+                            .foregroundColor(getTextColor(for: option))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 70)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(getBackgroundColor(for: option))
+                            )
+                    }
+                    .disabled(selectedAnswer != nil)
+                }
             }
+            .padding(.horizontal)
+            
+            Spacer()
         }
-        .padding()
+        .padding(.top, 20)
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
-                // First resume the alarm sound
                 alarmManager.resumeAlarm()
-                
-                // Then restart notifications immediately
                 if let alarm = alarmManager.alarms.first(where: { $0.isEnabled }) {
                     alarmManager.startImmediateNotifications(for: alarm)
                 }
-                
-                // Reset quiz state
                 alarmManager.showMathQuiz = false
                 dismiss()
             }
         }
     }
     
-    private func checkAnswer() {
-        let currentAnswer = Int(userAnswers[currentQuestion]) ?? -999999
+    private func getTextColor(for option: Int) -> Color {
+        guard let selected = selectedAnswer else { return .primary }
+        if option == selected {
+            return .white
+        }
+        return .primary
+    }
+    
+    private func getBackgroundColor(for option: Int) -> Color {
+        guard let selected = selectedAnswer else { return Color.gray.opacity(0.1) }
         
-        if currentAnswer == questions[currentQuestion].answer {
-            if currentQuestion < 2 {
-                currentQuestion += 1
-            } else {
-                // All questions answered correctly
-                alarmManager.stopAlarmSound()
-                dismiss()
+        if option == selected {
+            return isAnswerCorrect ? .green : .red
+        }
+        return Color.gray.opacity(0.1)
+    }
+    
+    private func checkAnswer(_ selected: Int) {
+        let generator = UINotificationFeedbackGenerator()
+        selectedAnswer = selected
+        isAnswerCorrect = selected == questions[currentQuestion].answer
+        
+        if isAnswerCorrect {
+            generator.notificationOccurred(.success)
+            
+            // Wait a moment to show the green color
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if currentQuestion < 2 {
+                    currentQuestion += 1
+                    selectedAnswer = nil
+                } else {
+                    generator.notificationOccurred(.success)
+                    alarmManager.stopAlarmSound()
+                    dismiss()
+                }
             }
         } else {
-            // Wrong answer, shake animation could be added here
-            userAnswers[currentQuestion] = ""
+            generator.notificationOccurred(.error)
+            
+            // Wait a moment to show the red color
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                selectedAnswer = nil
+            }
         }
     }
 } 

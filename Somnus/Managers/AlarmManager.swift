@@ -108,7 +108,6 @@ class AlarmManager: ObservableObject {
     func pauseAlarm() {
         audioPlayer?.pause()
         silentPlayer?.play()
-        // Temporarily remove notifications while solving
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
     }
     
@@ -116,7 +115,15 @@ class AlarmManager: ObservableObject {
         silentPlayer?.pause()
         audioPlayer?.play()
         isAlarmPlaying = true
-        showMathQuiz = true
+    }
+    
+    func stopAlarmSound() {
+        audioPlayer?.stop()
+        silentPlayer?.play()
+        isAlarmPlaying = false
+        
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
     }
     
     func startImmediateNotifications(for alarm: Alarm) {
@@ -149,16 +156,6 @@ class AlarmManager: ObservableObject {
                 timer.invalidate()
             }
         }
-    }
-    
-    func stopAlarmSound() {
-        audioPlayer?.stop()
-        silentPlayer?.play()
-        isAlarmPlaying = false
-        
-        // Clean up all notifications when alarm is stopped
-        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
-        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
     }
     
     func scheduleNotification(for alarm: Alarm) {

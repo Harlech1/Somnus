@@ -35,23 +35,14 @@ struct ContentView: View {
             MathQuizView(alarmManager: alarmManager)
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
-                // Check alarm state when app becomes active
-                if alarmManager.audioPlayer?.isPlaying == true {
-                    alarmManager.pauseAlarm()
-                    alarmManager.showMathQuiz = true
-                }
+            if newPhase == .active, alarmManager.audioPlayer?.isPlaying == true {
+                alarmManager.pauseAlarm()
+                alarmManager.showMathQuiz = true
             }
         }
         .onAppear {
             notificationDelegate.alarmManager = alarmManager
             alarmManager.setNotificationDelegate(notificationDelegate)
-            
-            // Initial check for playing alarm
-            if alarmManager.audioPlayer?.isPlaying == true {
-                alarmManager.pauseAlarm()
-                alarmManager.showMathQuiz = true
-            }
         }
     }
 }
