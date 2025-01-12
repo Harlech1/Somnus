@@ -104,6 +104,10 @@ class AlarmManager: ObservableObject {
     func stopAlarmSound() {
         audioPlayer?.stop()
         silentPlayer?.play()
+        
+        // Clean up all notifications when alarm is stopped
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
     }
     
     func scheduleNotification(for alarm: Alarm) {
@@ -119,49 +123,57 @@ class AlarmManager: ObservableObject {
             return
         }
         
-        // Schedule the initial alarm sound
         Timer.scheduledTimer(withTimeInterval: alarmTime.timeIntervalSince(now), repeats: false) { [weak self] _ in
             self?.playAlarmSound()
-            // Start a timer to check and reschedule notifications
-            Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] timer in
+            
+            Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] timer in
                 guard let self = self else { return }
-                // Only continue if alarm is still playing
                 if self.audioPlayer?.isPlaying == true {
-                    self.scheduleNextBatchOfNotifications(for: alarm, from: Date())
+                    let content = UNMutableNotificationContent()
+                    content.title = "Wake Up!"
+                    content.body = "Time to wake up! Tap to stop."
+                    
+                    // Create an immediate trigger
+                    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+                    
+                    let request = UNNotificationRequest(identifier: "\(alarm.id.uuidString)-\(Date().timeIntervalSince1970)",
+                                                      content: content,
+                                                      trigger: trigger)
+                    
+                    UNUserNotificationCenter.current().add(request)
                 } else {
                     timer.invalidate()
                 }
             }
         }
         
-        // Schedule first batch of notifications
-        scheduleNextBatchOfNotifications(for: alarm, from: alarmTime)
-    }
-    
-    private func scheduleNextBatchOfNotifications(for alarm: Alarm, from startTime: Date) {
-        // Schedule 64 notifications (maximum allowed)
-        for i in 0..<64 {
-            let content = UNMutableNotificationContent()
-            content.title = "Wake Up!"
-            content.body = "Time to wake up! Tap to stop."
-            
-            let notificationTime = startTime.addingTimeInterval(TimeInterval(i * 2))
-            let triggerComponents = Calendar.current.dateComponents([.hour, .minute, .second], from: notificationTime)
-            let trigger = UNCalendarNotificationTrigger(dateMatching: triggerComponents, repeats: false)
-            
-            let identifier = "\(alarm.id.uuidString)-\(i)"
-            let request = UNNotificationRequest(identifier: identifier,
-                                              content: content,
-                                              trigger: trigger)
-            
-            UNUserNotificationCenter.current().add(request)
-        }
+        // Schedule initial notification
+        let content = UNMutableNotificationContent()
+        content.title = "Wake Up!"
+        content.body = "Time to wake up! Tap to stop."
+        
+        let triggerComponents = Calendar.current.dateComponents([.hour, .minute], from: alarm.time)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: triggerComponents, repeats: false)
+        
+        let request = UNNotificationRequest(identifier: alarm.id.uuidString,
+                                          content: content,
+                                          trigger: trigger)
+        
+        UNUserNotificationCenter.current().add(request)
     }
     
     func cancelNotifications(for alarm: Alarm) {
-        let identifiers = (0..<64).map { "\(alarm.id.uuidString)-\($0)" }
-        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: identifiers)
+        // Remove all notifications with this alarm's UUID prefix
+        UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
+            let identifiersToRemove = requests.filter { $0.identifier.hasPrefix(alarm.id.uuidString) }
+                                            .map { $0.identifier }
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: identifiersToRemove)
+        }
+        UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
+            let identifiersToRemove = notifications.filter { $0.request.identifier.hasPrefix(alarm.id.uuidString) }
+                                                .map { $0.request.identifier }
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiersToRemove)
+        }
     }
     
     private func requestNotificationPermission() {
