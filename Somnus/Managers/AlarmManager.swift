@@ -2,76 +2,27 @@ import SwiftUI
 import UserNotifications
 import AVFoundation
 import MediaPlayer
+import AudioToolbox
 
 class AlarmManager: ObservableObject {
     @Published var alarms: [Alarm] = []
     @Published var showMathQuiz = false
     @Published var isAlarmPlaying = false
     var audioPlayer: AVAudioPlayer?
-    private var silentPlayer: AVAudioPlayer?
-    private var volumeView: MPVolumeView?
-    private var volumeSlider: UISlider?
+    var silentPlayer: AVAudioPlayer?
+    private let volumeManager = VolumeManager.shared
     private var notificationDelegate: NotificationDelegate?
     
     init() {
-        setupVolumeControl()
         setupAudio()
         requestNotificationPermission()
         loadAlarms()
-        setupScenePhaseObserver()
-    }
-    
-    private func setupScenePhaseObserver() {
-        NotificationCenter.default.addObserver(self,
-                                             selector: #selector(appWillTerminate),
-                                             name: UIApplication.willTerminateNotification,
-                                             object: nil)
-    }
-
-    @objc private func appWillTerminate() {
-        let activeAlarms = alarms.filter { $0.isEnabled }
-        if !activeAlarms.isEmpty {
-            let content = UNMutableNotificationContent()
-            content.title = "⚠️ Warning: Alarms Will Not Work"
-            content.body = "You have closed the app completely. Your alarms will not sound until you open the app again."
-            content.sound = .default
-            
-            // Show notification after 5 seconds
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
-            let request = UNNotificationRequest(identifier: "app-terminated-warning",
-                                              content: content,
-                                              trigger: trigger)
-            
-            UNUserNotificationCenter.current().add(request)
-        }
+        setupSceneObserver()
     }
     
     func setNotificationDelegate(_ delegate: NotificationDelegate) {
         notificationDelegate = delegate
         UNUserNotificationCenter.current().delegate = delegate
-    }
-    
-    private func setupVolumeControl() {
-        volumeView = MPVolumeView(frame: CGRect.zero)
-        if let view = volumeView {
-            view.isHidden = true
-            UIApplication.shared.windows.first?.addSubview(view)
-            
-            for subview in view.subviews {
-                if let slider = subview as? UISlider {
-                    slider.value = 0.3
-                    volumeSlider = slider
-                    break
-                }
-            }
-        }
-    }
-    
-    private func maximizeVolume() {
-        DispatchQueue.main.async {
-            self.volumeSlider?.setValue(0.3, animated: false)
-            self.volumeSlider?.sendActions(for: .touchUpInside)
-        }
     }
     
     private func setupAudio() {
@@ -99,7 +50,7 @@ class AlarmManager: ObservableObject {
     
     func playAlarmSound() {
         silentPlayer?.pause()
-        maximizeVolume()
+        volumeManager.setVolume()
         audioPlayer?.play()
         isAlarmPlaying = true
         showMathQuiz = true
@@ -115,6 +66,7 @@ class AlarmManager: ObservableObject {
         silentPlayer?.pause()
         audioPlayer?.play()
         isAlarmPlaying = true
+        AudioServicesPlayAlertSoundWithCompletion(SystemSoundID(kSystemSoundID_Vibrate)) { }
     }
     
     func stopAlarmSound() {
@@ -138,6 +90,9 @@ class AlarmManager: ObservableObject {
                                           trigger: trigger)
         UNUserNotificationCenter.current().add(request)
         
+        // Create intense haptic pattern
+        createIntenseHapticFeedback()
+        
         // Then start the timer for subsequent notifications with 5-second interval
         Timer.scheduledTimer(withTimeInterval: 4.9, repeats: true) { [weak self] timer in
             guard let self = self else { return }
@@ -152,10 +107,17 @@ class AlarmManager: ObservableObject {
                                                   trigger: trigger)
                 
                 UNUserNotificationCenter.current().add(request)
+                
+                // Create intense haptic pattern for each notification
+                createIntenseHapticFeedback()
             } else {
                 timer.invalidate()
             }
         }
+    }
+    
+    private func createIntenseHapticFeedback() {
+        AudioServicesPlayAlertSoundWithCompletion(SystemSoundID(kSystemSoundID_Vibrate)) { }
     }
     
     func scheduleNotification(for alarm: Alarm) {
@@ -173,6 +135,7 @@ class AlarmManager: ObservableObject {
         
         Timer.scheduledTimer(withTimeInterval: alarmTime.timeIntervalSince(now), repeats: false) { [weak self] _ in
             self?.playAlarmSound()
+            AudioServicesPlayAlertSoundWithCompletion(SystemSoundID(kSystemSoundID_Vibrate)) { }
             
             Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { [weak self] timer in
                 guard let self = self else { return }
@@ -189,6 +152,7 @@ class AlarmManager: ObservableObject {
                                                       trigger: trigger)
                     
                     UNUserNotificationCenter.current().add(request)
+                    AudioServicesPlayAlertSoundWithCompletion(SystemSoundID(kSystemSoundID_Vibrate)) { }
                 } else {
                     timer.invalidate()
                 }
@@ -233,7 +197,43 @@ class AlarmManager: ObservableObject {
             }
         }
     }
+
+    // MARK: - Termination Management
     
+    private func setupSceneObserver() {
+        NotificationCenter.default.addObserver(self,
+                                             selector: #selector(appWillTerminate),
+                                             name: UIApplication.willTerminateNotification,
+                                             object: nil)
+        
+        NotificationCenter.default.addObserver(self,
+                                             selector: #selector(appDidBecomeActive),
+                                             name: UIApplication.didBecomeActiveNotification,
+                                             object: nil)
+    }
+    
+    @objc private func appWillTerminate() {
+        let activeAlarms = alarms.filter { $0.isEnabled }
+        if !activeAlarms.isEmpty {
+            let content = UNMutableNotificationContent()
+            content.title = "⚠️ Warning: Alarms Will Not Work"
+            content.body = "You have closed the app completely. Your alarms will not sound until you open the app again."
+            content.sound = .default
+            
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
+            let request = UNNotificationRequest(identifier: "app-terminated-warning",
+                                              content: content,
+                                              trigger: trigger)
+            
+            UNUserNotificationCenter.current().add(request)
+        }
+    }
+    
+    @objc private func appDidBecomeActive() {
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["app-terminated-warning"])
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["app-terminated-warning"])
+    }
+
     // MARK: - Alarm Management
     
     func loadAlarms() {
